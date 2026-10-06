@@ -6,6 +6,50 @@ test.describe.serial('FlowDesk 完整链路',()=>{
  test('发布后列表和总览同步',async({page})=>{await page.goto('/workflows/wf-2');await page.getByTestId('publish-button').click();await expect(page.getByRole('status')).toContainText('发布成功');await page.getByRole('link',{name:'流程管理'}).click();const row=page.getByTestId('workflow-row').filter({hasText:'采购合同审批'});await expect(row).toContainText('已发布');await expect(row).toContainText('v3');await page.getByRole('link',{name:'总览'}).click();await expect(page.getByTestId('kpi-grid')).toBeVisible();});
  test('异常实例详情、时间线与当前节点高亮',async({page})=>{await page.goto('/monitor');await page.getByRole('button',{name:'异常',exact:true}).click();await page.getByTestId('instance-row').first().click();await expect(page.getByTestId('instance-detail')).toBeVisible();await expect(page.getByTestId('execution-timeline')).toContainText('提交申请');await expect(page.locator('.runtime-highlight')).toHaveCount(1);});
  test('版本比较并恢复历史版本',async({page})=>{await page.goto('/workflows/wf-2/versions');await expect(page.getByTestId('version-compare')).toContainText('新增节点');await page.getByTestId('restore-version').click();await expect(page).toHaveURL(/\/workflows\/wf-2$/);await expect(page.getByRole('status')).toContainText('已恢复');await expect(page.getByTestId('flow-canvas')).toBeVisible();});
+ test('异常实例重试批次：补偿、断点续做与流水对账',async({page})=>{
+  await page.goto('/monitor?instance=INS-2026-0001');
+  const seed=page.getByTestId('batch-card').filter({hasText:'BATCH-20260710-001'});
+  await expect(seed).toContainText('失败');
+  await expect(seed.getByTestId('compensation-task')).toHaveCount(2);
+  await expect(seed.getByTestId('compensation-task').first()).toContainText('外部流水写入');
+  await seed.getByTestId('compensate-batch').click();
+  await expect(seed).toContainText('已补偿');
+  await seed.getByTestId('resume-batch').click();
+  const resume=page.getByTestId('batch-card').filter({hasText:'第 2 次尝试'});
+  await expect(resume).toContainText('进行中');
+  await expect(resume.getByTestId('action-row').filter({hasText:'不可重放'})).toHaveCount(2);
+  await resume.getByTestId('execute-batch').click();
+  await expect(resume).toContainText('已完成');
+  await resume.getByTestId('reconcile-batch').click();
+  await expect(page.getByTestId('reconcile-result')).toContainText('已核销 2 笔');
+  await expect(page.getByTestId('reconcile-result')).toContainText('未核对流水 1 笔');
+  await expect(page.getByTestId('execution-timeline')).toContainText('BATCH-20260711-');
+ });
+ test('同例同节点并发重试：后到者待处理，前序结束后激活',async({page})=>{
+  await page.goto('/monitor?instance=INS-2026-0002');
+  await page.getByTestId('start-retry').click();
+  await expect(page.getByTestId('batch-card')).toHaveCount(1);
+  await expect(page.getByTestId('batch-card').first()).toContainText('进行中');
+  await page.getByTestId('start-retry').click();
+  const cards=page.getByTestId('batch-card');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first()).toContainText('待处理');
+  await cards.last().getByTestId('execute-batch').click();
+  await expect(cards.last()).toContainText('失败');
+  await expect(cards.first()).toContainText('进行中');
+ });
+ test('超时实例断点续做只继续未完成动作，版本页显示同一批次',async({page})=>{
+  await page.goto('/monitor?instance=INS-2026-0013');
+  await page.getByTestId('start-retry').click();
+  const resume=page.getByTestId('batch-card').filter({hasText:'第 2 次尝试'});
+  await expect(resume).toContainText('进行中');
+  await expect(resume.getByTestId('action-row').first()).toContainText('成功');
+  await resume.getByTestId('execute-batch').click();
+  await expect(resume).toContainText('已完成');
+  await expect(resume.getByTestId('action-row').filter({hasText:'成功'})).toHaveCount(3);
+  await page.goto('/workflows/wf-1/versions');
+  await expect(page.getByTestId('version-batch').filter({hasText:'BATCH-20260709-002'})).toBeVisible();
+ });
 });
 
 test('1440px 桌面视觉与控制台验证',async({page})=>{
